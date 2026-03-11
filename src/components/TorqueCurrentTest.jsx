@@ -1,74 +1,40 @@
 import { useState, useEffect } from "react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
-  ScatterChart, Scatter, ZAxis
+  ScatterChart, Scatter, ReferenceLine
 } from "recharts";
 import { MOTOR } from "../motorParams.js";
 
-function generateTorqueCurrentData() {
-  // Generate torque-current curve from 0 to 200% load
-  const curve = [];
-  for (let load = 0; load <= 200; load += 2) {
-    const loadFactor  = load / 100;
-    const I_noload    = MOTOR.current_low * 0.35;
-    const I_rated     = MOTOR.current_low;
-    // Current increases nonlinearly with torque
-    const I_rms       = I_noload + (I_rated - I_noload) * Math.pow(loadFactor, 0.85);
-    const torque      = MOTOR.torque_nm * loadFactor;
-    const slip        = 0.005 + MOTOR.slip * loadFactor;
-    const rpm         = MOTOR.rpm_sync * (1 - slip);
-    const power       = (torque * rpm * 2 * Math.PI / 60);
-    const efficiency  = load > 5 ? Math.min(0.92, 0.75 + 0.17 * Math.pow(loadFactor, 0.4) - 0.05 * loadFactor * loadFactor) : 0;
-    const pf          = load > 5 ? Math.min(0.95, 0.5 + 0.45 * Math.pow(loadFactor, 0.5)) : 0.2;
-
-    curve.push({
-      load:       parseFloat(load.toFixed(1)),
-      torque:     parseFloat(torque.toFixed(3)),
-      current:    parseFloat(I_rms.toFixed(3)),
-      rpm:        parseFloat(rpm.toFixed(1)),
-      slip_pct:   parseFloat((slip * 100).toFixed(2)),
-      power_w:    parseFloat(power.toFixed(1)),
-      efficiency: parseFloat((efficiency * 100).toFixed(1)),
-      pf:         parseFloat(pf.toFixed(3)),
-    });
-  }
-  return curve;
-}
-
 function generateTimeData(loadPercent) {
-  // Time-domain torque and current from startup to stable
-  const data       = [];
-  const omega      = 2 * Math.PI * MOTOR.frequency;
-  const loadFactor = loadPercent / 100;
+  const data        = [];
+  const loadFactor  = loadPercent / 100;
 
-  const I_noload   = MOTOR.current_low * 0.35;
-  const I_steady   = I_noload + (MOTOR.current_low - I_noload) * Math.pow(loadFactor, 0.85);
-  const I_startup  = MOTOR.current_low * 6.0;
-  const T_steady   = MOTOR.torque_nm * loadFactor;
-  const T_startup  = MOTOR.torque_nm * 1.5; // starting torque ~150%
+  const I_noload    = MOTOR.current_low * 0.35;
+  const I_steady    = I_noload + (MOTOR.current_low - I_noload) * Math.pow(loadFactor, 0.85);
+  const I_startup   = MOTOR.current_low * 6.0;
+  const T_steady    = MOTOR.torque_nm * loadFactor;
+  const T_startup   = MOTOR.torque_nm * 1.5;
 
-  const tau_mech   = 0.05 + loadFactor * 0.15;
-  const tau_elec   = 0.008;
+  const tau_mech    = 0.05 + loadFactor * 0.15;
+  const tau_elec    = 0.008;
   const slip_steady = 0.005 + MOTOR.slip * loadFactor;
   const rpm_steady  = MOTOR.rpm_sync * (1 - slip_steady);
 
-  const duration   = tau_mech * 5;
-  const steps      = Math.floor(duration * MOTOR.sample_rate);
-  const downsample = Math.max(1, Math.floor(steps / 800));
-
-  const rmsWindow  = Math.floor(MOTOR.sample_rate / MOTOR.frequency);
-  const iA_buffer  = [];
+  const duration    = tau_mech * 5;
+  const steps       = Math.floor(duration * MOTOR.sample_rate);
+  const downsample  = Math.max(1, Math.floor(steps / 800));
+  const rmsWindow   = Math.floor(MOTOR.sample_rate / MOTOR.frequency);
+  const iA_buffer   = [];
 
   for (let i = 0; i <= steps; i++) {
     const t         = i / MOTOR.sample_rate;
     const inrush    = (I_startup - I_steady) * Math.exp(-t / tau_elec);
-    const transient = I_steady * (1 - Math.exp(-t / tau_mech));
+    const transient = I_steady  * (1 - Math.exp(-t / tau_mech));
     const I_env     = inrush + transient;
 
-    // Torque transient: starts at T_startup, oscillates, settles
-    const T_env = T_startup * Math.exp(-t / tau_elec)
-                + T_steady  * (1 - Math.exp(-t / tau_mech))
-                + T_steady  * 0.15 * Math.exp(-t / (tau_mech * 0.3)) * Math.cos(2 * Math.PI * 8 * t);
+    const T_env     = T_startup * Math.exp(-t / tau_elec)
+                    + T_steady  * (1 - Math.exp(-t / tau_mech))
+                    + T_steady  * 0.15 * Math.exp(-t / (tau_mech * 0.3)) * Math.cos(2 * Math.PI * 8 * t);
 
     const slip_inst = Math.exp(-t / tau_mech) + slip_steady * (1 - Math.exp(-t / tau_mech));
     const phase_acc = 2 * Math.PI * MOTOR.frequency * t * (1 - slip_inst * 0.3);
@@ -77,17 +43,40 @@ function generateTimeData(loadPercent) {
     iA_buffer.push(ia);
     if (iA_buffer.length > rmsWindow) iA_buffer.shift();
     const rms = Math.sqrt(iA_buffer.reduce((s, v) => s + v * v, 0) / iA_buffer.length);
+    const rpm = rpm_steady * (1 - Math.exp(-t / tau_mech));
 
     if (i % downsample === 0) {
       data.push({
         t:       parseFloat((t * 1000).toFixed(2)),
-        torque:  parseFloat(Math.max(0, T_env).toFixed(4)),
         current: parseFloat(rms.toFixed(4)),
-        rpm:     parseFloat((rpm_steady * (1 - Math.exp(-t / tau_mech))).toFixed(1)),
+        torque:  parseFloat(Math.max(0, T_env).toFixed(4)),
+        rpm:     parseFloat(rpm.toFixed(1)),
       });
     }
   }
-  return data;
+  return {
+    data,
+    I_steady:   parseFloat(I_steady.toFixed(3)),
+    T_steady:   parseFloat(T_steady.toFixed(3)),
+    rpm_steady: parseFloat(rpm_steady.toFixed(1)),
+    stableTime: parseFloat((tau_mech * 4 * 1000).toFixed(0)),
+  };
+}
+
+function generateTorqueCurrentCurve() {
+  const curve = [];
+  for (let load = 0; load <= 200; load += 2) {
+    const loadFactor = load / 100;
+    const I_noload   = MOTOR.current_low * 0.35;
+    const I_rms      = I_noload + (MOTOR.current_low - I_noload) * Math.pow(loadFactor, 0.85);
+    const torque     = MOTOR.torque_nm * loadFactor;
+    curve.push({
+      torque:  parseFloat(torque.toFixed(3)),
+      current: parseFloat(I_rms.toFixed(3)),
+      load,
+    });
+  }
+  return curve;
 }
 
 const LOAD_PRESETS = [
@@ -98,204 +87,164 @@ const LOAD_PRESETS = [
   { label: "Full Load", value: 100, color: "#ef4444" },
 ];
 
-const TABS = [
-  { id: "curve",  label: "📈 Torque-Current Curve" },
-  { id: "time",   label: "⏱ Time Domain" },
-  { id: "perf",   label: "⚡ Performance" },
-];
+const CARD = ({ label, val, color, unit }) => (
+  <div style={{ background: "#1e293b", borderRadius: 8, padding: "10px 16px", minWidth: 120 }}>
+    <div style={{ fontSize: 11, color: "#64748b", marginBottom: 2 }}>{label}</div>
+    <div style={{ fontSize: 15, color, fontWeight: "bold" }}>{val} <span style={{ fontSize: 11, color: "#64748b" }}>{unit}</span></div>
+  </div>
+);
 
 export default function TorqueCurrentTest() {
-  const [activeTab,   setActiveTab]   = useState("curve");
   const [loadPercent, setLoadPercent] = useState(100);
+  const [result,      setResult]      = useState({ data: [], I_steady: 0, T_steady: 0, rpm_steady: 0, stableTime: 0 });
   const [curveData,   setCurveData]   = useState([]);
-  const [timeData,    setTimeData]    = useState([]);
 
-  useEffect(() => {
-    setCurveData(generateTorqueCurrentData());
-  }, []);
+  useEffect(() => { setResult(generateTimeData(loadPercent)); },  [loadPercent]);
+  useEffect(() => { setCurveData(generateTorqueCurrentCurve()); }, []);
 
-  useEffect(() => {
-    setTimeData(generateTimeData(loadPercent));
-  }, [loadPercent]);
-
-  const preset    = LOAD_PRESETS.find(p => p.value === loadPercent) || LOAD_PRESETS[4];
-  const operating = curveData.find(d => d.load === loadPercent) || {};
+  const preset = LOAD_PRESETS.find(p => p.value === loadPercent) || LOAD_PRESETS[4];
 
   return (
     <div>
-      <h2 style={{ color: "#38bdf8", marginBottom: 4 }}>🔄 Torque — Current Test</h2>
-      <p style={{ color: "#94a3b8", fontSize: 13, marginBottom: 20 }}>
-        Torque-current relationship from 0% to 200% load | IEEE DataPort motor model
+      <h2 style={{ color: "#38bdf8", marginBottom: 4 }}>🔄 Torque — Current — Speed Test</h2>
+      <p style={{ color: "#94a3b8", fontSize: 13, marginBottom: 16 }}>
+        4 factors shown across 3 focused 2D graphs — each graph shows max 2 variables
       </p>
 
-      {/* Sub tabs */}
-      <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
-        {TABS.map(t => (
-          <button key={t.id} onClick={() => setActiveTab(t.id)}
+      {/* Load selector */}
+      <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
+        {LOAD_PRESETS.map(p => (
+          <button key={p.value} onClick={() => setLoadPercent(p.value)}
             style={{
-              padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer",
-              background: activeTab === t.id ? "#0ea5e9" : "#1e293b",
-              color: activeTab === t.id ? "#fff" : "#94a3b8",
-              fontWeight: activeTab === t.id ? "bold" : "normal", fontSize: 13
+              padding: "9px 18px", borderRadius: 8, border: "none", cursor: "pointer",
+              background: loadPercent === p.value ? p.color : "#1e293b",
+              color: loadPercent === p.value ? "#000" : "#94a3b8",
+              fontWeight: loadPercent === p.value ? "bold" : "normal", fontSize: 13
             }}>
-            {t.label}
+            {p.label}
           </button>
         ))}
       </div>
 
-      {/* ── TAB 1: Torque-Current Curve ── */}
-      {activeTab === "curve" && (
-        <div>
-          <p style={{ color: "#64748b", fontSize: 12, marginBottom: 12 }}>
-            Shows how stator RMS current rises with shaft torque demand (0–200% rated load)
-          </p>
-          <ResponsiveContainer width="100%" height={380}>
-            <LineChart data={curveData} margin={{ top: 10, right: 30, left: 10, bottom: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e3a52" />
-              <XAxis dataKey="torque"
-                label={{ value: "Torque (Nm)", position: "insideBottom", offset: -10, fill: "#94a3b8" }}
-                tick={{ fill: "#94a3b8", fontSize: 11 }} />
-              <YAxis
-                label={{ value: "RMS Current (A)", angle: -90, position: "insideLeft", fill: "#94a3b8" }}
-                tick={{ fill: "#94a3b8", fontSize: 11 }} />
-              <Tooltip
-                contentStyle={{ background: "#1e293b", border: "1px solid #334155", color: "#e2e8f0" }}
-                formatter={(v, name) => [
-                  name === "current" ? v + " A" :
-                  name === "rpm"     ? v + " rpm" : v,
-                  name === "current" ? "RMS Current" :
-                  name === "rpm"     ? "Speed" : name
-                ]}
-                labelFormatter={l => "Torque: " + l + " Nm"} />
-              <Legend wrapperStyle={{ color: "#94a3b8" }} />
-              <Line type="monotone" dataKey="current" stroke="#38bdf8" dot={false} strokeWidth={3} name="RMS Current (A)" />
-              <Line type="monotone" dataKey="rpm"     stroke="#a78bfa" dot={false} strokeWidth={2}
-                yAxisId={0} name="Speed (rpm)"
-                strokeDasharray="5 3" />
-            </LineChart>
-          </ResponsiveContainer>
-
-          {/* Rated point markers */}
-          <div style={{ display: "flex", gap: 14, marginTop: 16, flexWrap: "wrap" }}>
-            {[
-              ["Rated Torque",   MOTOR.torque_nm + " Nm",             "#38bdf8"],
-              ["Rated Current",  MOTOR.current_low + " A",            "#4ade80"],
-              ["No-load Current",(MOTOR.current_low * 0.35).toFixed(2) + " A", "#facc15"],
-              ["Max Torque",     (MOTOR.torque_nm * 2).toFixed(2) + " Nm",    "#ef4444"],
-              ["Rated Speed",    MOTOR.rpm_rated + " rpm",            "#a78bfa"],
-            ].map(([label, val, color]) => (
-              <div key={label} style={{ background: "#1e293b", borderRadius: 8, padding: "10px 16px", minWidth: 130 }}>
-                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 15, color, fontWeight: "bold" }}>{val}</div>
-              </div>
-            ))}
-          </div>
+      {/* Slider */}
+      <div style={{ background: "#1e293b", borderRadius: 10, padding: "14px 20px", marginBottom: 20 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
+          <span style={{ color: "#94a3b8", fontSize: 13 }}>Load: <strong style={{ color: preset.color }}>{loadPercent}%</strong></span>
+          <span style={{ color: "#94a3b8", fontSize: 13 }}>Stable at: <strong style={{ color: "#fbbf24" }}>{result.stableTime} ms</strong></span>
         </div>
-      )}
+        <input type="range" min="0" max="100" value={loadPercent}
+          onChange={e => setLoadPercent(Number(e.target.value))}
+          style={{ width: "100%", accentColor: preset.color }} />
+      </div>
 
-      {/* ── TAB 2: Time Domain ── */}
-      {activeTab === "time" && (
-        <div>
-          {/* Load selector */}
-          <div style={{ display: "flex", gap: 10, marginBottom: 16, flexWrap: "wrap" }}>
-            {LOAD_PRESETS.map(p => (
-              <button key={p.value} onClick={() => setLoadPercent(p.value)}
-                style={{
-                  padding: "8px 16px", borderRadius: 8, border: "none", cursor: "pointer",
-                  background: loadPercent === p.value ? p.color : "#1e293b",
-                  color: loadPercent === p.value ? "#000" : "#94a3b8",
-                  fontWeight: loadPercent === p.value ? "bold" : "normal", fontSize: 13
-                }}>
-                {p.label}
-              </button>
-            ))}
-          </div>
+      {/* Stat cards */}
+      <div style={{ display: "flex", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
+        <CARD label="Steady Current" val={result.I_steady} color="#38bdf8"  unit="A"   />
+        <CARD label="Steady Torque"  val={result.T_steady} color="#fb923c"  unit="Nm"  />
+        <CARD label="Steady Speed"   val={result.rpm_steady} color="#a78bfa" unit="rpm" />
+        <CARD label="Stable Time"    val={result.stableTime} color="#fbbf24" unit="ms"  />
+        <CARD label="Inrush Current" val={(MOTOR.current_low * 6).toFixed(2)} color="#ef4444" unit="A" />
+      </div>
 
-          <p style={{ color: "#64748b", fontSize: 12, marginBottom: 12 }}>
-            Torque (Nm) and RMS Current (A) from startup to steady state — dual Y-axis
-          </p>
+      {/* ── GRAPH 1: Current vs Time ── */}
+      <div style={{ background: "#1e293b", borderRadius: 10, padding: 16, marginBottom: 20 }}>
+        <h3 style={{ color: "#38bdf8", margin: "0 0 4px" }}>Graph 1 — Current vs Time</h3>
+        <p style={{ color: "#64748b", fontSize: 12, margin: "0 0 12px" }}>RMS stator current from startup to stable state</p>
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={result.data} margin={{ top: 5, right: 30, left: 10, bottom: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#0f172a" />
+            <XAxis dataKey="t"
+              label={{ value: "Time (ms)", position: "insideBottom", offset: -10, fill: "#94a3b8" }}
+              tick={{ fill: "#94a3b8", fontSize: 11 }} />
+            <YAxis
+              label={{ value: "Current (A)", angle: -90, position: "insideLeft", fill: "#38bdf8" }}
+              tick={{ fill: "#38bdf8", fontSize: 11 }} />
+            <Tooltip
+              contentStyle={{ background: "#0f172a", border: "1px solid #334155", color: "#e2e8f0" }}
+              formatter={v => [v + " A", "RMS Current"]}
+              labelFormatter={l => "t = " + l + " ms"} />
+            <ReferenceLine x={result.stableTime} stroke="#fbbf24" strokeDasharray="5 3"
+              label={{ value: "Stable", fill: "#fbbf24", fontSize: 10 }} />
+            <Line type="monotone" dataKey="current" stroke="#38bdf8" dot={false} strokeWidth={2.5} name="RMS Current" />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
 
-          <ResponsiveContainer width="100%" height={380}>
-            <LineChart data={timeData} margin={{ top: 10, right: 50, left: 10, bottom: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e3a52" />
-              <XAxis dataKey="t"
-                label={{ value: "Time (ms)", position: "insideBottom", offset: -10, fill: "#94a3b8" }}
-                tick={{ fill: "#94a3b8", fontSize: 11 }} />
-              <YAxis yAxisId="current"
-                label={{ value: "Current (A)", angle: -90, position: "insideLeft", fill: "#38bdf8" }}
-                tick={{ fill: "#38bdf8", fontSize: 11 }} />
-              <YAxis yAxisId="torque" orientation="right"
-                label={{ value: "Torque (Nm)", angle: 90, position: "insideRight", fill: "#fb923c" }}
-                tick={{ fill: "#fb923c", fontSize: 11 }} />
-              <Tooltip
-                contentStyle={{ background: "#1e293b", border: "1px solid #334155", color: "#e2e8f0" }}
-                formatter={(v, name) => [
-                  name === "current" ? v + " A" :
-                  name === "torque"  ? v + " Nm" : v + " rpm", name
-                ]}
-                labelFormatter={l => "t = " + l + " ms"} />
-              <Legend wrapperStyle={{ color: "#94a3b8" }} />
-              <Line yAxisId="current" type="monotone" dataKey="current"
-                stroke="#38bdf8" dot={false} strokeWidth={2.5} name="RMS Current" />
-              <Line yAxisId="torque"  type="monotone" dataKey="torque"
-                stroke="#fb923c" dot={false} strokeWidth={2.5} name="Torque" />
-              <Line yAxisId="torque"  type="monotone" dataKey="rpm"
-                stroke="#a78bfa" dot={false} strokeWidth={1.5} strokeDasharray="5 3" name="Speed (rpm)" />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
-      )}
+      {/* ── GRAPH 2: Torque vs Time ── */}
+      <div style={{ background: "#1e293b", borderRadius: 10, padding: 16, marginBottom: 20 }}>
+        <h3 style={{ color: "#fb923c", margin: "0 0 4px" }}>Graph 2 — Torque vs Time</h3>
+        <p style={{ color: "#64748b", fontSize: 12, margin: "0 0 12px" }}>Shaft torque transient from startup to stable state</p>
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={result.data} margin={{ top: 5, right: 30, left: 10, bottom: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#0f172a" />
+            <XAxis dataKey="t"
+              label={{ value: "Time (ms)", position: "insideBottom", offset: -10, fill: "#94a3b8" }}
+              tick={{ fill: "#94a3b8", fontSize: 11 }} />
+            <YAxis
+              label={{ value: "Torque (Nm)", angle: -90, position: "insideLeft", fill: "#fb923c" }}
+              tick={{ fill: "#fb923c", fontSize: 11 }} />
+            <Tooltip
+              contentStyle={{ background: "#0f172a", border: "1px solid #334155", color: "#e2e8f0" }}
+              formatter={v => [v + " Nm", "Torque"]}
+              labelFormatter={l => "t = " + l + " ms"} />
+            <ReferenceLine x={result.stableTime} stroke="#fbbf24" strokeDasharray="5 3"
+              label={{ value: "Stable", fill: "#fbbf24", fontSize: 10 }} />
+            <Line type="monotone" dataKey="torque" stroke="#fb923c" dot={false} strokeWidth={2.5} name="Torque" />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
 
-      {/* ── TAB 3: Performance ── */}
-      {activeTab === "perf" && (
-        <div>
-          <p style={{ color: "#64748b", fontSize: 12, marginBottom: 12 }}>
-            Efficiency and power factor vs load — key motor performance indicators
-          </p>
-          <ResponsiveContainer width="100%" height={380}>
-            <LineChart data={curveData} margin={{ top: 10, right: 50, left: 10, bottom: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#1e3a52" />
-              <XAxis dataKey="load"
-                label={{ value: "Load (%)", position: "insideBottom", offset: -10, fill: "#94a3b8" }}
-                tick={{ fill: "#94a3b8", fontSize: 11 }} />
-              <YAxis yAxisId="eff"
-                label={{ value: "Efficiency (%)", angle: -90, position: "insideLeft", fill: "#4ade80" }}
-                tick={{ fill: "#4ade80", fontSize: 11 }} domain={[0, 100]} />
-              <YAxis yAxisId="pf" orientation="right"
-                label={{ value: "Power Factor", angle: 90, position: "insideRight", fill: "#facc15" }}
-                tick={{ fill: "#facc15", fontSize: 11 }} domain={[0, 1]} />
-              <Tooltip
-                contentStyle={{ background: "#1e293b", border: "1px solid #334155", color: "#e2e8f0" }}
-                formatter={(v, name) => [
-                  name === "efficiency" ? v + " %" : v,
-                  name === "efficiency" ? "Efficiency" : "Power Factor"
-                ]}
-                labelFormatter={l => "Load: " + l + "%"} />
-              <Legend wrapperStyle={{ color: "#94a3b8" }} />
-              <Line yAxisId="eff" type="monotone" dataKey="efficiency"
-                stroke="#4ade80" dot={false} strokeWidth={2.5} name="efficiency" />
-              <Line yAxisId="pf"  type="monotone" dataKey="pf"
-                stroke="#facc15" dot={false} strokeWidth={2.5} name="pf" />
-            </LineChart>
-          </ResponsiveContainer>
+      {/* ── GRAPH 3: Speed vs Time ── */}
+      <div style={{ background: "#1e293b", borderRadius: 10, padding: 16, marginBottom: 20 }}>
+        <h3 style={{ color: "#a78bfa", margin: "0 0 4px" }}>Graph 3 — Speed vs Time</h3>
+        <p style={{ color: "#64748b", fontSize: 12, margin: "0 0 12px" }}>Rotor speed acceleration from standstill to rated speed</p>
+        <ResponsiveContainer width="100%" height={260}>
+          <LineChart data={result.data} margin={{ top: 5, right: 30, left: 10, bottom: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#0f172a" />
+            <XAxis dataKey="t"
+              label={{ value: "Time (ms)", position: "insideBottom", offset: -10, fill: "#94a3b8" }}
+              tick={{ fill: "#94a3b8", fontSize: 11 }} />
+            <YAxis
+              label={{ value: "Speed (rpm)", angle: -90, position: "insideLeft", fill: "#a78bfa" }}
+              tick={{ fill: "#a78bfa", fontSize: 11 }} />
+            <Tooltip
+              contentStyle={{ background: "#0f172a", border: "1px solid #334155", color: "#e2e8f0" }}
+              formatter={v => [v + " rpm", "Speed"]}
+              labelFormatter={l => "t = " + l + " ms"} />
+            <ReferenceLine x={result.stableTime} stroke="#fbbf24" strokeDasharray="5 3"
+              label={{ value: "Stable", fill: "#fbbf24", fontSize: 10 }} />
+            <ReferenceLine y={result.rpm_steady} stroke="#a78bfa" strokeDasharray="5 3"
+              label={{ value: result.rpm_steady + " rpm", fill: "#a78bfa", fontSize: 10 }} />
+            <Line type="monotone" dataKey="rpm" stroke="#a78bfa" dot={false} strokeWidth={2.5} name="Speed" />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
 
-          {/* Performance at rated load */}
-          <div style={{ display: "flex", gap: 14, marginTop: 16, flexWrap: "wrap" }}>
-            {[
-              ["Rated Efficiency", "87%",  "#4ade80"],
-              ["Peak Efficiency",  "92%",  "#22c55e"],
-              ["Rated PF",         "0.85", "#facc15"],
-              ["No-load PF",       "0.20", "#ef4444"],
-              ["Best Eff. Point",  "75%",  "#38bdf8"],
-            ].map(([label, val, color]) => (
-              <div key={label} style={{ background: "#1e293b", borderRadius: 8, padding: "10px 16px", minWidth: 130 }}>
-                <div style={{ fontSize: 11, color: "#64748b", marginBottom: 2 }}>{label}</div>
-                <div style={{ fontSize: 15, color, fontWeight: "bold" }}>{val}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      {/* ── GRAPH 4: Torque vs Current (X-Y) ── */}
+      <div style={{ background: "#1e293b", borderRadius: 10, padding: 16, marginBottom: 20 }}>
+        <h3 style={{ color: "#4ade80", margin: "0 0 4px" }}>Graph 4 — Torque vs Current (Operating Curve)</h3>
+        <p style={{ color: "#64748b", fontSize: 12, margin: "0 0 12px" }}>How current must increase to produce more torque — 0% to 200% load</p>
+        <ResponsiveContainer width="100%" height={280}>
+          <ScatterChart margin={{ top: 5, right: 30, left: 10, bottom: 20 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="#0f172a" />
+            <XAxis dataKey="current" type="number" name="Current"
+              label={{ value: "RMS Current (A)", position: "insideBottom", offset: -10, fill: "#94a3b8" }}
+              tick={{ fill: "#94a3b8", fontSize: 11 }} domain={["auto", "auto"]} />
+            <YAxis dataKey="torque" type="number" name="Torque"
+              label={{ value: "Torque (Nm)", angle: -90, position: "insideLeft", fill: "#4ade80" }}
+              tick={{ fill: "#4ade80", fontSize: 11 }} />
+            <Tooltip
+              contentStyle={{ background: "#0f172a", border: "1px solid #334155", color: "#e2e8f0" }}
+              formatter={(v, name) => [name === "Current" ? v + " A" : v + " Nm", name]}
+              cursor={{ strokeDasharray: "3 3" }} />
+            <ReferenceLine x={result.I_steady} stroke="#38bdf8" strokeDasharray="4 2"
+              label={{ value: "Operating", fill: "#38bdf8", fontSize: 10 }} />
+            <ReferenceLine y={result.T_steady} stroke="#fb923c" strokeDasharray="4 2"
+              label={{ value: result.T_steady + " Nm", fill: "#fb923c", fontSize: 10 }} />
+            <Scatter data={curveData} fill="#4ade80" line={{ stroke: "#4ade80", strokeWidth: 2 }} lineType="joint" shape="circle" />
+          </ScatterChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
