@@ -3,6 +3,7 @@ import CurrentGraph from "./components/CurrentGraph.jsx";
 import MotorSpecs from "./components/MotorSpecs.jsx";
 import FaultComparison from "./components/FaultComparison.jsx";
 import LoadTest from "./components/LoadTest.jsx";
+import TorqueCurrentTest from "./components/TorqueCurrentTest.jsx";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("specs");
@@ -11,6 +12,7 @@ export default function App() {
     { id: "current", label: "⚡ Current Graph" },
     { id: "fault",   label: "🔴 Fault Comparison" },
     { id: "load",    label: "⚖️ Load Test" },
+    { id: "torque",  label: "🔄 Torque-Current" },
   ];
 
   return (
@@ -37,6 +39,7 @@ export default function App() {
         {activeTab === "current" && <CurrentGraph />}
         {activeTab === "fault"   && <FaultComparison />}
         {activeTab === "load"    && <LoadTest />}
+        {activeTab === "torque"  && <TorqueCurrentTest />}
       </div>
     </div>
   );
