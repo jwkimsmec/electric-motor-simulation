@@ -5,6 +5,7 @@ import FaultComparison from "./components/FaultComparison.jsx";
 import LoadTest from "./components/LoadTest.jsx";
 import TorqueCurrentTest from "./components/TorqueCurrentTest.jsx";
 import PerformanceTest from "./components/PerformanceTest.jsx";
+import EfficiencyOptimizer from "./components/EfficiencyOptimizer.jsx";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("specs");
@@ -15,6 +16,7 @@ export default function App() {
     { id: "load",        label: "⚖️ Load Test"      },
     { id: "torque",      label: "🔄 Torque-Current" },
     { id: "performance", label: "📊 Performance"    },
+    { id: "optimizer",   label: "🔬 Optimizer"      },
   ];
   return (
     <div style={{ fontFamily: "sans-serif", background: "#0f172a", minHeight: "100vh", color: "#e2e8f0" }}>
@@ -42,6 +44,7 @@ export default function App() {
         {activeTab === "load"        && <LoadTest />}
         {activeTab === "torque"      && <TorqueCurrentTest />}
         {activeTab === "performance" && <PerformanceTest />}
+        {activeTab === "optimizer"   && <EfficiencyOptimizer />}
       </div>
     </div>
   );
