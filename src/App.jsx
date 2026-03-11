@@ -16,7 +16,6 @@ export default function App() {
     { id: "torque",      label: "🔄 Torque-Current" },
     { id: "performance", label: "📊 Performance"    },
   ];
-
   return (
     <div style={{ fontFamily: "sans-serif", background: "#0f172a", minHeight: "100vh", color: "#e2e8f0" }}>
       <div style={{ background: "#1e293b", padding: "16px 24px", borderBottom: "1px solid #334155" }}>
