@@ -1,12 +1,14 @@
 import { useState } from "react";
 import CurrentGraph from "./components/CurrentGraph.jsx";
 import MotorSpecs from "./components/MotorSpecs.jsx";
+import FaultComparison from "./components/FaultComparison.jsx";
 
 export default function App() {
   const [activeTab, setActiveTab] = useState("specs");
   const tabs = [
-    { id: "specs", label: "⚙️ Motor Specs" },
+    { id: "specs",   label: "⚙️ Motor Specs" },
     { id: "current", label: "⚡ Current Graph" },
+    { id: "fault",   label: "🔴 Fault Comparison" },
   ];
 
   return (
@@ -29,8 +31,9 @@ export default function App() {
         ))}
       </div>
       <div style={{ padding: 24 }}>
-        {activeTab === "specs" && <MotorSpecs />}
+        {activeTab === "specs"   && <MotorSpecs />}
         {activeTab === "current" && <CurrentGraph />}
+        {activeTab === "fault"   && <FaultComparison />}
       </div>
     </div>
   );
