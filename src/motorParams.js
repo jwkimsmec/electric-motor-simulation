@@ -1,0 +1,17 @@
+export const MOTOR = {
+  name: "Three-Phase Squirrel Cage Induction Motor",
+  power_hp: 1,
+  power_w: 746,
+  voltage_low: 220,
+  voltage_high: 380,
+  current_low: 3.02,
+  current_high: 1.75,
+  poles: 4,
+  frequency: 60,
+  rpm_rated: 1715,
+  rpm_sync: 1800,
+  slip: (1800 - 1715) / 1800,
+  rotor_bars: 34,
+  torque_nm: 4.1,
+  sample_rate: 50000,
+};
